@@ -1,0 +1,10 @@
+# puppet torb coniguration
+---
+master: internet
+name:   localhost
+key:    whatever
+secure: false
+
+proxy:
+  host: 127.0.0.1
+  port: 9050

@@ -1,0 +1,29 @@
+# master torb coniguration
+---
+domain:   internet
+database: sqlite:///tmp/db
+salt:     la borra? la barra!
+
+pages:
+  home: >
+    %html
+      %head
+        %title
+          torb - TOR to WWW
+
+      %body
+        BLABLABLALA
+
+  session.create: >
+    %html
+      %head
+        %title= "torb - session registration"
+
+      %body
+        %content
+
+        %form{ action: env['REQUEST_URI'], method: 'get' }
+          %input{ type: 'submit', value: 'I know what I'm doing, and I know you aren't distributing the content but just redirecting it' }
+
+puppets:
+  localhost: whatever
