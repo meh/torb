@@ -23,10 +23,9 @@ require 'haml'
 
 require 'ap'
 
-module Torb
-  Config = YAML.parse_file(ARGV.shift).transform.tap {|c|
-    c['pages'].dup.each {|name, content|
-      c['pages'][name] = Haml::Engine.new(content)
+module Torb; Config = YAML.parse_file(ARGV.shift).transform
+    c['pages'].dup.each {|name, path|
+      c['pages'][name] = Haml::Engine.new(File.read(path))
     }
   }
 end

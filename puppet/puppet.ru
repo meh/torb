@@ -20,7 +20,7 @@ require 'json'
 require 'socksify/http'
 
 module Torb
-  Config = YAML.parse_file(ARGV.shift).transform.tap {|c| }
+  Config = YAML.parse_file(ARGV.shift).transform
 end
 
 PROXY = Net::HTTP.SOCKSProxy(Torb::Config['proxy']['host'], Torb::Config['proxy']['port'].to_i)

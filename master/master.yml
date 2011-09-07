@@ -1,0 +1,12 @@
+#m master torb coniguration
+---
+domain:   internet
+database: sqlite:///tmp/db
+salt:     la borra? la barra!
+
+pages:
+  home:           home.haml
+  session.create: session.create.haml
+
+puppets:
+  localhost: whatever
