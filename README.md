@@ -35,6 +35,7 @@ spam linking to hidden services and the like.
 Client side security
 --------------------
 There *will* be multiple client side security modes (this needs a bit of serious research):
+
 * Give it your PGP public key and get back PGP encrypted stuff (use FirePGP or something on those lines to decrypt)
 * Give it a simple password and choose the algorithm and get back encrypted html pages that will get automagically
   decrypted on the client (allows to encrypt only html)

@@ -5,6 +5,4 @@ name:   localhost
 key:    whatever
 secure: false
 
-proxy:
-  host: 127.0.0.1
-  port: 9050
+proxy: 127.0.0.1:9050

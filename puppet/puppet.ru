@@ -18,17 +18,46 @@ require 'yaml'
 require 'json'
 require 'socksify/http'
 
+require 'ap'
+
 module Torb
-	Config = YAML.parse_file(ARGV.shift || 'config.yml').transform
+	def self.config (path=nil)
+		return @config unless path
+
+		@config = YAML.parse_file(path).transform
+	end
+
+	def self.proxy (proxy=nil)
+		return @proxy unless proxy
+
+		whole, host, port = proxy.match(/^(.*?):(.*?)$/).to_a
+
+		@proxy = Net::HTTP.SOCKSProxy(host, port.to_i)
+	end
+
+	config(ARGV.first || 'config.yml')
+	proxy(Torb.config['proxy'])
+
+	trap 'USR1' do
+		config(ARGV.first || 'config.yml')
+		proxy(Torb.config['proxy'])
+	end
 end
 
-PROXY = Net::HTTP.SOCKSProxy(Torb::Config['proxy']['host'], Torb::Config['proxy']['port'].to_i)
-
 use Rack::ContentLength
-use Rack::Deflater
 
 run lambda {|env|
-	secure, method, headers, uri, data = Net::HTTP.get("http#{'s' if Torb::Config['secure']}://#{Torb::Config['master']}/json/#{Torb::Config['name']}/#{Torb::Config['key']}/#{id}").from_json
+	if env['REQUEST_METHOD'] == 'POST'
+		return [200, {}, 'kay']
+	end
+
+	secure, method, headers, uri, data = begin
+		Net::HTTP.get(URI.parse("http#{'s' if Torb::Config['secure']}://#{Torb::Config['master']}/json/#{Torb::Config['name']}/#{Torb::Config['key']}/#{env['REQUEST_PATH'][1 .. -1]}")).from_json
+	rescue
+		return [503, {}, '']
+	end
+
+	ap [secure, method, headers, uri, data]
 
 	uri  = URI.parse(uri)
 	http = PROXY.start(uri.host, uri.port)
@@ -50,8 +79,8 @@ run lambda {|env|
 
 	code = response.code
 	body = response.body.
-		gsub(%r{http://(\w.*)\.onion}, "http#{'s' if secure}://$1.#{Torb::Config['master']}").
-		gsub(%r{https://(\w.*)\.onion}, "http#{'s' if secure}://$1.ssl.#{Torb::Config['master']}")
+		gsub(%r{http://(\w.*)\.onion}, "http#{?s if secure}://$1.#{Torb::Config['master']}").
+		gsub(%r{https://(\w.*)\.onion}, "http#{?s if secure}://$1.ssl.#{Torb::Config['master']}")
 
 	headers = Hash[response.each_header.map {|(name, value)|
 		[name.gsub(/(\A|-)(.)/) {|match|

@@ -1,7 +1,7 @@
 #m master torb coniguration
 ---
 domain:   internet
-database: sqlite:///tmp/db
+database: "sqlite::memory:" # for testing purposes or standalone running :memory: is the best choice
 salt:     la borra? la barra!
 
 pages:
@@ -9,6 +9,6 @@ pages:
   session.create: session.create.haml
 
 puppets:
-  localhost: whatever
+  "localhost:3000": whatever
 
 blacklist: []

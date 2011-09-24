@@ -10,4 +10,5 @@ gem 'datamapper'
 gem 'json'
 
 # depending on database
-gem 'dm-postgres-adapter'
+gem 'dm-sqlite-adapter'
+# gem 'dm-postgres-adapter'
