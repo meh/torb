@@ -55,7 +55,7 @@ decentralized, and decentralized is good.
 
 How to run
 ----------
-First of all make sure to have installed bundle (`gem install bundle` should suffice if your Ruby isn't fucked up).
+First of all make sure to have installed bundler (`gem install bundler` should suffice if your Ruby isn't fucked up).
 
 Then just run `bundle install` inside *master* and *puppet*, this will install the needed dependencies.
 
