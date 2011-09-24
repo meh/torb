@@ -1,0 +1,8 @@
+source :rubygems
+
+# web server, I suggest thin
+gem 'thin'
+
+# core
+gem 'json'
+gem 'socksify'

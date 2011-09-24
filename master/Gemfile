@@ -1,0 +1,13 @@
+source :rubygems
+
+# web server, I suggest thin
+gem 'thin'
+
+# core
+gem 'sinatra'
+gem 'haml'
+gem 'datamapper'
+gem 'json'
+
+# depending on database
+gem 'dm-postgres-adapter'

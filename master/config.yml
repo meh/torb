@@ -10,3 +10,5 @@ pages:
 
 puppets:
   localhost: whatever
+
+blacklist: []
