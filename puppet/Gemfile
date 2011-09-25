@@ -6,3 +6,4 @@ gem 'thin'
 # core
 gem 'json'
 gem 'socksify'
+gem 'memoized'

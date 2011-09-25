@@ -17,6 +17,8 @@
 require 'yaml'
 require 'json'
 require 'socksify/http'
+require 'memoized'
+require 'base64'
 
 require 'ap'
 
@@ -32,7 +34,9 @@ module Torb
 
 		whole, host, port = proxy.match(/^(.*?):(.*?)$/).to_a
 
-		@proxy = Net::HTTP.SOCKSProxy(host, port.to_i)
+		@proxy = Net::HTTP.SOCKSProxy(host, port.to_i).tap {|proxy|
+			proxy.singleton_memoize :start
+		}
 	end
 
 	config(ARGV.first || 'config.yml')
@@ -45,26 +49,28 @@ module Torb
 end
 
 use Rack::ContentLength
+use Rack::CommonLogger
 
 run lambda {|env|
 	if env['REQUEST_METHOD'] == 'POST'
-		return [200, {}, 'kay']
+		return [200, {}, ['kay']]
 	end
 
 	secure, method, headers, uri, data = begin
-		Net::HTTP.get(URI.parse("http#{'s' if Torb::Config['secure']}://#{Torb::Config['master']}/json/#{Torb::Config['name']}/#{Torb::Config['key']}/#{env['REQUEST_PATH'][1 .. -1]}")).from_json
+		JSON.parse(Net::HTTP.get(URI.parse("http#{'s' if Torb.config['secure']}://#{Torb.config['master']}/puppet/fetch/request/#{Torb.config['name']}/#{Torb.config['key']}/#{env['REQUEST_PATH'][1 .. -1]}")))
 	rescue
-		return [503, {}, '']
+		return [503, {}, ['']]
 	end
 
-	ap [secure, method, headers, uri, data]
+	ssl     = uri.start_with?('https')
+	service = uri.match(%r{/(.*?).onion})[1]
 
 	uri  = URI.parse(uri)
-	http = PROXY.start(uri.host, uri.port)
+	http = Torb.proxy.start(uri.host, uri.port)
 
 	response = case method
 		when 'GET'
-			http.get(uri.path)
+			http.get(uri.path, headers)
 
 		when 'POST'
 
@@ -77,16 +83,34 @@ run lambda {|env|
 		when 'DELETE'
 	end
 
-	code = response.code
-	body = response.body.
-		gsub(%r{http://(\w.*)\.onion}, "http#{?s if secure}://$1.#{Torb::Config['master']}").
-		gsub(%r{https://(\w.*)\.onion}, "http#{?s if secure}://$1.ssl.#{Torb::Config['master']}")
-
-	headers = Hash[response.each_header.map {|(name, value)|
+	code    = response.code
+	body    = response.body
+	headers = Hash[response.each_header.map {|name, value|
 		[name.gsub(/(\A|-)(.)/) {|match|
 			match.upcase
 		}, value]
-	}]
+	}.compact]
 
-	return [code, headers, body]
+	if headers['Content-Type'] == 'text/html'
+		body = body.
+			gsub(%r{http://(\w*)\.onion}, "http#{?s if secure}://\\1.#{Torb.config['master']}").
+			gsub(%r{https://(\w*)\.onion}, "http#{?s if secure}://\\1.ssl.#{Torb.config['master']}").
+			gsub(%r{href=['"](.*?)['"]}) {|match|
+				uri = match.match(%r{href=['"](.*?)['"]$})[1]
+
+				if (URI.parse(uri).scheme rescue false)
+					match
+				else
+					"href='http#{?s if secure}://#{service}.#{'ssl.' if ssl}#{Torb.config['master']}/#{uri}'"
+				end
+			}
+	end
+
+	headers.delete('Transfer-Encoding')
+
+	if headers['Set-Cookie']
+		Net::HTTP.get(URI.parse("http#{'s' if Torb.config['secure']}://#{Torb.config['master']}/puppet/cookie/set/#{Torb.config['name']}/#{Torb.config['key']}/#{env['REQUEST_PATH'][1 .. -1]}/#{Base64.urlsafe_encode64(headers.delete('Set-Cookie'))}"))
+	end
+
+	return [code, headers, [body]]
 }

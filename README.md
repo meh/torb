@@ -17,20 +17,15 @@ refer to said session. This means that the only URL that will be seen is somethi
 `domainofpuppet/403926033d001b5279df37cbbe5287b7c7c267fa` and it will be used to contact the
 **puppet master** and get the last visited page.
 
-When the session is created it is linked to a single **puppet**, in this way cookie problems are avoided, this
-also means that cookie aren't maintained through multiple sessions, for obvious reasons.
-
 The **puppet** and the **puppet master** share a secret key that authorizes the **puppet** to fetch the data, each
 **puppet** has a different key, so that revoking authorizations is easy.
 
-Linking pages on hidden services
---------------------------------
-Because of what said in the *Design* section linking to a page on torb isn't really easy, the solution is to have
-a page where you can pass your session hash and get a page with an optional password and an expire time (with a
-reasonable max time of life) so you can send links of hidden services for direct access.
+Cookie management
+-----------------
+Having *puppets* on different domains means that cookies have to be managed in a special way.
 
-If a password is given the max time of life is sensibly longer than the one without password, this is done to avoid
-spam linking to hidden services and the like.
+Cookies aren't managed by the browser but by the master/puppet relation, this is because the different domains would
+fuck up cookie handling, and it would make a lot of stuff really useless.
 
 Client side security
 --------------------
@@ -50,7 +45,7 @@ Or let the puppets have their own certificate, I don't think having a shared cer
 I don't think having the nodes under the same domain and maintained by the same people is a good idea either.
 
 The **master** will be managed by trusted people that will keep checking if the puppets are doing right and
-will have the job of adding and removing puppets when needed, in this way everything will be really
+will have the job of adding and removing puppets when needed, in this way content delivery will be really
 decentralized, and decentralized is good.
 
 How to run

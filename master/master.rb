@@ -21,6 +21,10 @@ require 'datamapper'
 require 'yaml'
 require 'json'
 require 'haml'
+require 'base64'
+require 'mechanize'
+
+require 'ap'
 
 module Torb
 	class Puppets < Array
@@ -37,7 +41,7 @@ module Torb
 			end
 
 			def name
-				@name ||= Digest::SHA25.hexdigest(@host + Torb.config['salt'].to_s + @password)
+				@name ||= Digest::SHA256.hexdigest(@host + Torb.config['salt'].to_s + @password)
 			end
 
 			def ping (timeout=nil)
@@ -49,16 +53,6 @@ module Torb
 
 			def alive?
 				@alive
-			end
-
-			def assign (id)
-				id.tap {
-					@assigned << id
-				}
-			end
-
-			def assigned? (id)
-				@assigned.member?(id)
 			end
 
 			# TODO: implement load checking support
@@ -85,13 +79,13 @@ module Torb
 
 		def get (host)
 			find {|puppet|
-				puppet.host == host
+				puppet.host == host || puppet.name == host
 			}
 		end
 
-		def best (name=nil)
-			find {|puppet|
-				next puppet.name == name if name
+		def best
+			min {|a, b|
+				a.load <=> b.load
 			}
 		end
 	end
@@ -112,7 +106,8 @@ module Torb
 		class Session
 			include DataMapper::Resource
 
-			property :id, String, length: 40, key: true
+			property :id, String, length: 64, key: true
+			property :jar, Object, default: Mechanize::CookieJar.new
 
 			has 1, :request, constraint: :destroy
 		end
@@ -148,11 +143,17 @@ DataMapper::setup :default, Torb.config['database']
 DataMapper::finalize
 DataMapper::auto_upgrade!
 
+Thread.start {
+	Torb.puppets.ping
+
+	sleep 60
+}
+
 use Rack::Session::Cookie, key: 'torb', secret: Torb.config['salt'].reverse
 
 helpers do
 	def banned? (url)
-		whole, name, port, path = site.match(%r{^(?:https?://)?(\w+)(?:\.onion)?(?::(\d+))?(/.*?)?$}).to_a
+		whole, name, port, path = url.match(%r{^(?:https?://)?(\w+)(?:\.onion)?(?::(\d+))?(/.*?)?$}).to_a
 
 		digest = Digest::SHA256.hexdigest(Torb.config['salt'] + "#{name}#{":#{port}" if port}#{"|#{path}" if path}")
 
@@ -170,7 +171,7 @@ helpers do
 					match.upcase
 				}
 
-				headers[name] = value unless ['Version', 'Host', 'Connection'].member?(name)
+				headers[name] = value unless ['Version', 'Host', 'Connection', 'Cookie'].member?(name)
 			}
 		}
 	end
@@ -180,13 +181,10 @@ helpers do
 
 		halt 500 if banned?(uri)
 
-		puppet = Torb.puppets.best(session[:puppet])
+		session[:id] ||= Digest::SHA256.hexdigest(Torb.config['salt'].to_s + rand.to_s)
 
-		session[:id]     = puppet.assign(session[:id] || Digest::SHA256.hexdigest(Torb.config['salt'].to_s + rand.to_s))
-		session[:puppet] = puppet.name
-
-		Models::Session.first_or_create(id: session[:id]).tap {|s|
-			s.request = Models::Request.first_or_create(session: s).tap {|r|
+		Torb::Models::Session.first_or_create(id: session[:id]).tap {|s|
+			s.request = Torb::Models::Request.first_or_create(session: s).tap {|r|
 				r.update(
 					secure:  env['rack.url_scheme'] == 'https',
 					method:  env['REQUEST_METHOD'],
@@ -198,12 +196,8 @@ helpers do
 			s.save
 		}
 
-		redirect puppet.url_for(session[:id], env['rack.url_scheme'] == 'https')
+		redirect Torb.puppets.best.url_for(session[:id], env['rack.url_scheme'] == 'https')
 	end
-end
-
-before do
-	_, @name, @port, @ssl = request.env['HTTP_HOST'].match(/^(\w+)(?:\.(\d+))?(\.ssl)?\.#{Regexp.escape(Torb.config['domain'])}/).to_a
 end
 
 get '/' do
@@ -212,12 +206,33 @@ get '/' do
  Torb.config['pages']['home'].render
 end
 
-get '/json/:name/:password/:id' do |name, password, id|
+# puppet handling
+get '/puppet/fetch/request/:name/:password/:id' do |name, password, id|
 	save_request if @name
 	halt 500     unless Torb.puppets.get(name).password  == password
-	halt 500     unless r = Models::Session.get(id).request
+	halt 500     unless s = Torb::Models::Session.get(id)
+	halt 500     unless r = s.request
 
-	[r.secure, r.method, r.headers, r.uri, r.data].to_json
+	[r.secure, r.method, r.headers.tap { |h| h['Cookie'] = s.jar.cookies(URI.parse(r.uri)).map(&:to_s).join('; ') }, r.uri, r.data].to_json.tap {
+#		r.destroy
+	}
+end
+
+get '/puppet/cookie/set/:name/:password/:domain/:id/:cookie' do |name, password, domain, id, cookie|
+	save_request if @name
+	halt 500     unless Torb.puppets.get(name).password  == password
+	halt 500     unless s = Torb::Models::Session.get(id)
+
+	Mechanize::Cookie.parse(URI.parse("http://#{domain}"), Base64.urlsafe_decode64(cookie)).each {|cookie|
+		s.jar.add(URI.parse("http://#{domain}"), cookie)
+	}
+
+	s.save
+end
+
+# request saving
+before do
+	_, @name, @port, @ssl = request.env['HTTP_HOST'].match(/^(\w+)(?:\.(\d+))?(\.ssl)?\.#{Regexp.escape(Torb.config['domain'])}/).to_a
 end
 
 get '/*' do
@@ -227,9 +242,3 @@ end
 post '/*' do
 	save_request if @name
 end
-
-Thread.start {
-	Torb.puppets.ping
-
-	sleep 60
-}

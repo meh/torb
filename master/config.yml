@@ -1,7 +1,7 @@
 #m master torb coniguration
 ---
-domain:   internet
-database: "sqlite::memory:" # for testing purposes or standalone running :memory: is the best choice
+domain:   localhost:4567
+database: "sqlite:///tmp/db"
 salt:     la borra? la barra!
 
 pages:

@@ -1,7 +1,7 @@
 # puppet torb coniguration
 ---
-master: internet
-name:   localhost
+master: localhost:4567
+name:   localhost:3000
 key:    whatever
 secure: false
 
