@@ -34,9 +34,7 @@ module Torb
 
 		whole, host, port = proxy.match(/^(.*?):(.*?)$/).to_a
 
-		@proxy = Net::HTTP.SOCKSProxy(host, port.to_i).tap {|proxy|
-			proxy.singleton_memoize :start
-		}
+		@proxy = Net::HTTP.SOCKSProxy(host, port.to_i)
 	end
 
 	config(ARGV.first || 'config.yml')

@@ -213,9 +213,7 @@ get '/puppet/fetch/request/:name/:password/:id' do |name, password, id|
 	halt 500     unless s = Torb::Models::Session.get(id)
 	halt 500     unless r = s.request
 
-	[r.secure, r.method, r.headers.tap { |h| h['Cookie'] = s.jar.cookies(URI.parse(r.uri)).map(&:to_s).join('; ') }, r.uri, r.data].to_json.tap {
-#		r.destroy
-	}
+	[r.secure, r.method, r.headers.tap { |h| h['Cookie'] = s.jar.cookies(URI.parse(r.uri)).map(&:to_s).join('; ') }, r.uri, r.data].to_json
 end
 
 get '/puppet/cookie/set/:name/:password/:domain/:id/:cookie' do |name, password, domain, id, cookie|
