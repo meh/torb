@@ -1,9 +1,8 @@
 source :rubygems
 
-# web server, I suggest thin
-gem 'thin'
+# core stuff
+gem 'eventmachine'
+gem 'eventmachine_httpserver'
+gem 'em-http-request'
 
-# core
 gem 'json'
-gem 'socksify'
-gem 'memoized'
