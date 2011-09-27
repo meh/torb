@@ -14,11 +14,25 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with This program. If not, see <http://www.gnu.org/licenses/>.
 
+require 'optparse'
+
+options = {}
+
+OptionParser.new do |o|
+	o.on '-c', '--config', 'enable config mode' do
+		options[:config] = true
+	end
+
+	o.on '-d', '--database DATABASE', 'set database URI' do |uri|
+		options[:database] = uri
+	end
+end.parse!
+
 require 'sinatra'
+require 'datamapper'
+
 require 'digest/sha2'
 require 'net/http'
-require 'datamapper'
-require 'yaml'
 require 'json'
 require 'haml'
 require 'base64'
@@ -29,19 +43,18 @@ require 'ap'
 module Torb
 	class Puppets < Array
 		class Puppet
-			attr_reader :host, :password
+			attr_reader :name, :host, :password
 
-			def initialize (host, password)
-				@host = host
+			def initialize (name, host, password)
+				@name      = name
+				@host      = host
 				@password  = password
-
-				@assigned = []
 
 				ping
 			end
 
 			def name
-				@name ||= Digest::SHA256.hexdigest(@host + Torb.config['salt'].to_s + @password)
+				@name ||= Digest::SHA256.hexdigest(@host + Torb::Config[:salt].to_s + @password)
 			end
 
 			def ping (timeout=nil)
@@ -66,8 +79,8 @@ module Torb
 		end
 
 		def initialize (puppets)
-			puppets.each {|host, key|
-				self << Puppet.new(host, key)
+			puppets.each {|name, (host, key)|
+				self << Puppet.new(name, host, key)
 			}
 		end
 
@@ -91,16 +104,38 @@ module Torb
 	end
 
 	module Models
+		class Config
+			class Piece
+				include DataMapper::Resource
+
+				belongs_to :config
+
+				property :path, String, key: true
+				property :value, Object
+			end
+
+			include DataMapper::Resource
+
+			property :id, Serial
+			property :created_at, DateTime
+
+			has n, :pieces
+		end
+
 		class Request
 			include DataMapper::Resource
 
-			belongs_to :session, key: true
+			belongs_to :session
+
+			property :id, Serial
 
 			property :secure,  Boolean
 			property :method,  String, length: 6
 			property :headers, Object
 			property :uri,     URI
 			property :data,    Object
+
+			property :created_at, DateTime
 		end
 
 		class Session
@@ -109,55 +144,88 @@ module Torb
 			property :id, String, length: 64, key: true
 			property :jar, Object, default: Mechanize::CookieJar.new
 
-			has 1, :request, constraint: :destroy
+			has n, :requests, constraint: :destroy
+
+			property :created_at, DateTime
 		end
 	end
 
-	def self.config (path=nil)
-		return @config unless path
+	module Config
+		class << Config
+			def to_hash
+				Hash[Models::Config.first_or_create.pieces.to_a.map {|piece|
+					[piece.path, piece.value]
+				}]
+			end
 
-		@config = YAML.parse_file(path).transform.tap {|c|
-			c['pages'].dup.each {|name, path|
-				c['pages'][name] = Haml::Engine.new(File.read(path))
-			}
-		}
+			def get (*path)
+				Models::Config.first_or_create.pieces.get(path.join(?.)).value rescue nil
+			end; alias [] get
+
+			def set (*path, value)
+				Models::Config.first_or_create.pieces.first_or_create(path: path.join(?.)).update(value: value)
+			end; alias []= set
+		end
 	end
 
-	def self.puppets (puppets=nil)
-		return @puppets unless puppets
+	def self.puppets (reload=false)
+		return @puppets unless reload
 
-		@puppets = Puppets.new(puppets)
-	end
-
-	config(ARGV.first || 'config.yml')
-	puppets(config['puppets'])
-
-	trap 'USR1' do
-		config(ARGV.first || 'config.yml')
-		puppets(config['puppets'])
+		@puppets = Puppets.new(Hash[Models::Config.first_or_create.pieces.all(:path.like => 'puppets.%').map {|piece|
+			[piece.path.split(?.).last, piece.value.split(/\s*;\s*/)]
+		}])
 	end
 end
 
+if !options[:database]
+	options[:database] = ARGV.shift or fail 'no database URI was passed'
+end
+
 DataMapper::Model.raise_on_save_failure = true
-DataMapper::setup :default, Torb.config['database']
+DataMapper::setup :default, options[:database]
 DataMapper::finalize
 DataMapper::auto_upgrade!
 
-Thread.start {
-	Torb.puppets.ping
+if options[:config]
+	if ARGV.empty?
+		Torb::Config.to_hash.each {|name, value|
+			puts "#{name}: #{value}"
+		}
 
-	sleep 60
-}
+		exit!
+	end
 
-use Rack::Session::Cookie, key: 'torb', secret: Torb.config['salt'].reverse
+	ARGV.each {|path|
+		path, value = if path.include?(?=)
+			path, value = path.split(?=, 2)
+
+			Torb::Config[path] = value
+
+			[path, value]
+		else
+			[path, Torb::Config[path]]
+		end
+
+		puts "#{path}: #{value.inspect}"
+	}
+
+	exit!
+end
+
+Torb.puppets(true)
+trap 'USR1' do
+	Torb.puppets(true)
+end
+
+use Rack::Session::Cookie, key: 'torb', secret: Torb::Config[:salt].reverse
 
 helpers do
 	def banned? (url)
 		whole, name, port, path = url.match(%r{^(?:https?://)?(\w+)(?:\.onion)?(?::(\d+))?(/.*?)?$}).to_a
 
-		digest = Digest::SHA256.hexdigest(Torb.config['salt'] + "#{name}#{":#{port}" if port}#{"|#{path}" if path}")
+		digest = Digest::SHA256.hexdigest(Torb::Config[:salt] + "#{name}#{":#{port}" if port}#{"|#{path}" if path}")
 
-		Torb.config['blacklist'].any? {|banned|
+		Torb::Config[:blacklist].any? {|banned|
 			banned == digest
 		}
 	end
@@ -181,7 +249,7 @@ helpers do
 
 		halt 500 if banned?(uri)
 
-		session[:id] ||= Digest::SHA256.hexdigest(Torb.config['salt'].to_s + rand.to_s)
+		session[:id] ||= Digest::SHA256.hexdigest(Torb::Config[:salt].to_s + rand.to_s)
 
 		Torb::Models::Session.first_or_create(id: session[:id]).tap {|s|
 			s.request = Torb::Models::Request.first_or_create(session: s).tap {|r|
@@ -200,10 +268,11 @@ helpers do
 	end
 end
 
+# server index
 get '/' do
  save_request if @name
 
- Torb.config['pages']['home'].render
+ Torb::Config[:pages, :home].render
 end
 
 # puppet handling
@@ -230,7 +299,7 @@ end
 
 # request saving
 before do
-	_, @name, @port, @ssl = request.env['HTTP_HOST'].match(/^(\w+)(?:\.(\d+))?(\.ssl)?\.#{Regexp.escape(Torb.config['domain'])}/).to_a
+	_, @name, @port, @ssl = request.env['HTTP_HOST'].match(/^(\w+)(?:\.(\d+))?(\.ssl)?\./).to_a
 end
 
 get '/*' do
@@ -240,3 +309,10 @@ end
 post '/*' do
 	save_request if @name
 end
+
+# start the time dependant things thread
+Thread.start {
+	Torb.puppets.ping
+
+	sleep 60
+}

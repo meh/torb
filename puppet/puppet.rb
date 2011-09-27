@@ -18,12 +18,25 @@ require 'eventmachine'
 require 'evma_httpserver'
 require 'em-http-request'
 
+require 'optparse'
 require 'yaml'
 require 'json'
 require 'socksify/http'
 require 'base64'
 
 require 'ap'
+
+options = {}
+
+OptionParser.new do |o|
+	options[:config] = 'config.yml'
+
+	o.on '-c', '--config PATH', 'set config file path' do |value|
+		options[:config] = value
+	end
+end.parse!
+
+options[:config] ||= ARGV.shift
 
 module Torb
 	def self.config (path=nil)
@@ -42,21 +55,15 @@ module Torb
 		"http#{'s' if Torb.config['secure']}://#{Torb.config['master']}"
 	end
 
-	config(ARGV.first || 'config.yml')
+	config(options[:config])
 
 	trap 'USR1' do
-		config(ARGV.first || 'config.yml')
+		config(options[:config])
 	end
 end
 
 class Handler < EventMachine::Connection
 	include EventMachine::HttpServer
-
-	def post_init
-		super
-
-		no_environment_strings
-	end
 
 	def process_http_request
 		# the http request details are available via the following instance variables:

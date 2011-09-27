@@ -54,8 +54,7 @@ First of all make sure to have installed bundler (`gem install bundler` should s
 
 Then just run `bundle install` inside *master* and *puppet*, this will install the needed dependencies.
 
-At this point you can run the *master* by simply executing it inside its dir and the *puppet* by running
-`thin start -R puppet.ru` inside its dir.
+At this point you can run both by simply executing them inside their directory.
 
 Status
 ------

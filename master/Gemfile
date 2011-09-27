@@ -6,10 +6,12 @@ gem 'thin'
 # core
 gem 'sinatra'
 gem 'haml'
-gem 'datamapper'
 gem 'json'
 gem 'mechanize'
 gem 'memoized'
+
+gem 'datamapper'
+gem 'dm-timestamps'
 
 # depending on database
 gem 'dm-sqlite-adapter'
