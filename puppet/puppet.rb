@@ -14,17 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with This program. If not, see <http://www.gnu.org/licenses/>.
 
-require 'eventmachine'
-require 'evma_httpserver'
-require 'em-http-request'
-
 require 'optparse'
-require 'yaml'
-require 'json'
-require 'socksify/http'
-require 'base64'
-
-require 'ap'
 
 options = {}
 
@@ -37,6 +27,16 @@ OptionParser.new do |o|
 end.parse!
 
 options[:config] ||= ARGV.shift
+
+require 'eventmachine'
+require 'evma_httpserver'
+require 'em-http-request'
+
+require 'yaml'
+require 'json'
+require 'base64'
+
+require 'ap'
 
 module Torb
 	def self.config (path=nil)
@@ -54,12 +54,11 @@ module Torb
 	def self.url
 		"http#{'s' if Torb.config['secure']}://#{Torb.config['master']}"
 	end
+end
 
-	config(options[:config])
-
-	trap 'USR1' do
-		config(options[:config])
-	end
+Torb.config(options[:config])
+trap 'USR1' do
+	Torb.config(options[:config])
 end
 
 class Handler < EventMachine::Connection
@@ -90,21 +89,25 @@ class Handler < EventMachine::Connection
 
 		whole, id, rid = @http_request_uri.match(%r{^/(\w+)/(\d+)$}).to_a
 
-		EventMachine::HttpRequest.new("#{Torb.url}/puppet/fetch/request/#{Torb.config['host']}/#{Torb.config['key']}/#{id}/#{rid}").get.tap {|http|
+		EventMachine::HttpRequest.new("#{Torb.url}/puppet/fetch/request/#{Torb.config['name']}/#{Torb.config['password']}/#{id}/#{rid}").get.tap {|http|
 			http.callback {
 				secure, method, headers, uri, data = begin
 					JSON.parse(http.response)
-				rescue
-					response.status 503
+				rescue => e
+					response.status = 503
 					response.send_response
-					break
+					next
 				end
 
 				ssl     = uri.start_with?('https')
 				service = uri.match(%r{/(.*?).onion})[1]
 
 				EventMachine::HttpRequest.new(uri, { :proxy => Torb.proxy }).send(method.downcase, { :head => headers }).tap {|http|
-					http.headers {|headers|
+					http.callback {
+						ap http.response
+					}
+
+					true or http.headers {|headers|
 						response.status  = http.response_header.status
 						response.headers = headers
 

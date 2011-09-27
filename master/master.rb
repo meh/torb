@@ -41,6 +41,8 @@ require 'mechanize'
 require 'ap'
 
 module Torb
+	Version = '0.1'
+
 	class Puppets < Array
 		class Puppet
 			attr_reader :name, :host, :password
@@ -73,8 +75,8 @@ module Torb
 				0
 			end
 
-			def url_for (id, secure=true)
-				"http#{?s if secure}://#{host}/#{id}"
+			def url_for (id, rid, secure=true)
+				"http#{?s if secure}://#{host}/#{id}/#{rid}"
 			end
 		end
 
@@ -97,7 +99,9 @@ module Torb
 		end
 
 		def best
-			min {|a, b|
+			select {|o|
+				o.available?
+			}.min {|a, b|
 				a.load <=> b.load
 			}
 		end
@@ -225,7 +229,7 @@ helpers do
 
 		digest = Digest::SHA256.hexdigest(Torb::Config[:salt] + "#{name}#{":#{port}" if port}#{"|#{path}" if path}")
 
-		Torb::Config[:blacklist].any? {|banned|
+		(Torb::Config[:blacklist] || []).any? {|banned|
 			banned == digest
 		}
 	end
@@ -250,21 +254,24 @@ helpers do
 		halt 500 if banned?(uri)
 
 		session[:id] ||= Digest::SHA256.hexdigest(Torb::Config[:salt].to_s + rand.to_s)
+		request_id     = nil
 
 		Torb::Models::Session.first_or_create(id: session[:id]).tap {|s|
-			s.request = Torb::Models::Request.first_or_create(session: s).tap {|r|
+			s.requests.create.tap {|r|
 				r.update(
 					secure:  env['rack.url_scheme'] == 'https',
 					method:  env['REQUEST_METHOD'],
 					uri:     uri,
 					headers: request_headers
 				)
+
+				request_id = r.id
 			}
 
 			s.save
 		}
 
-		redirect Torb.puppets.best.url_for(session[:id], env['rack.url_scheme'] == 'https')
+		redirect Torb.puppets.best.url_for(session[:id], request_id, env['rack.url_scheme'] == 'https')
 	end
 end
 
@@ -276,13 +283,19 @@ get '/' do
 end
 
 # puppet handling
-get '/puppet/fetch/request/:name/:password/:id' do |name, password, id|
+get '/puppet/fetch/request/:name/:password/:id/:rid' do |name, password, id, rid|
 	save_request if @name
 	halt 500     unless Torb.puppets.get(name).password  == password
 	halt 500     unless s = Torb::Models::Session.get(id)
-	halt 500     unless r = s.request
+	halt 500     unless r = s.requests.first(id: rid)
 
-	[r.secure, r.method, r.headers.tap { |h| h['Cookie'] = s.jar.cookies(URI.parse(r.uri)).map(&:to_s).join('; ') }, r.uri, r.data].to_json
+	[r.secure, r.method, r.headers.tap {|h|
+		s.jar.cookies(URI.parse(r.uri)).map(&:to_s).join('; ').tap {|c|
+			h['Cookie'] = c unless c.empty?
+		}
+
+		h['User-Agent'] = "torb/#{Torb::Version}"
+	}, r.uri, r.data].to_json
 end
 
 get '/puppet/cookie/set/:name/:password/:domain/:id/:cookie' do |name, password, domain, id, cookie|
