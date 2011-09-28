@@ -87,7 +87,7 @@ class Handler < EventMachine::Connection
 			return
 		end
 
-		whole, id, rid = @http_request_uri.match(%r{^/(\w+)/(\d+)$}).to_a
+		whole, id, rid = @http_request_uri.match(%r{^/(\w+)/(\d+)(/.*)?$}).to_a
 
 		EventMachine::HttpRequest.new("#{Torb.url}/puppet/fetch/request/#{Torb.config['name']}/#{Torb.config['password']}/#{id}/#{rid}").get.tap {|http|
 			http.callback {
@@ -102,14 +102,16 @@ class Handler < EventMachine::Connection
 				ssl     = uri.start_with?('https')
 				service = uri.match(%r{/(.*?).onion})[1]
 
-				EventMachine::HttpRequest.new(uri, { :proxy => Torb.proxy }).send(method.downcase, { :head => headers }).tap {|http|
-					http.callback {
-						ap http.response
-					}
+				puts "Going on #{uri}"
 
-					true or http.headers {|headers|
+				EventMachine::HttpRequest.new(uri, { :proxy => Torb.proxy }).send(method.downcase, { :head => headers }).tap {|http|
+					http.headers {|headers|
 						response.status  = http.response_header.status
-						response.headers = headers
+						response.headers = Hash[http.response_header.map {|name, value|
+							[name.downcase.gsub('_', '-').gsub(/(\A|-)(.)/) {|match|
+								match.upcase
+							}, value]
+						}]
 
 						response.headers.delete('Transfer-Encoding')
 
@@ -137,6 +139,11 @@ class Handler < EventMachine::Connection
 								response.send_response
 							}
 						else
+							http.callback {
+								response.send_trailer
+								response.close_connection_after_writing
+							}
+
 							http.stream {|chunk|
 								response.chunk chunk
 								response.send_chunks

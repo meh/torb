@@ -75,8 +75,8 @@ module Torb
 				0
 			end
 
-			def url_for (id, rid, secure=true)
-				"http#{?s if secure}://#{host}/#{id}/#{rid}"
+			def url_for (id, rid, filename=nil, secure=true)
+				"http#{?s if secure}://#{host}/#{id}/#{rid}/#{filename}"
 			end
 		end
 
@@ -100,7 +100,7 @@ module Torb
 
 		def best
 			select {|o|
-				o.available?
+				o.alive?
 			}.min {|a, b|
 				a.load <=> b.load
 			}
@@ -271,7 +271,7 @@ helpers do
 			s.save
 		}
 
-		redirect Torb.puppets.best.url_for(session[:id], request_id, env['rack.url_scheme'] == 'https')
+		redirect Torb.puppets.best.url_for(session[:id], request_id, File.basename(env['REQUEST_URI']), env['rack.url_scheme'] == 'https')
 	end
 end
 
@@ -295,6 +295,7 @@ get '/puppet/fetch/request/:name/:password/:id/:rid' do |name, password, id, rid
 		}
 
 		h['User-Agent'] = "torb/#{Torb::Version}"
+		h['Connection'] = 'close'
 	}, r.uri, r.data].to_json
 end
 
