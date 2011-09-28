@@ -35,22 +35,25 @@ require 'em-http-request'
 require 'yaml'
 require 'json'
 require 'base64'
-
-require 'ap'
+require 'memoized'
 
 module Torb
 	def self.config (path=nil)
 		return @config unless path
 
+		memoize_clear
+
 		@config = YAML.parse_file(path).transform
 	end
 
+	singleton_memoize
 	def self.proxy
 		whole, host, port = Torb.config['proxy'].match(/^(.*?):(.*?)$/).to_a
 
 		{ :host => host, :port => port.to_i, :type => :socks5 }
 	end
 
+	singleton_memoize
 	def self.url
 		"http#{'s' if Torb.config['secure']}://#{Torb.config['master']}"
 	end
