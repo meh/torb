@@ -68,18 +68,6 @@ class Handler < EventMachine::Connection
 	include EventMachine::HttpServer
 
 	def process_http_request
-		# the http request details are available via the following instance variables:
-		#   @http_protocol
-		#   @http_request_method
-		#   @http_cookie
-		#   @http_if_none_match
-		#   @http_content_type
-		#   @http_path_info
-		#   @http_request_uri
-		#   @http_query_string
-		#   @http_post_content
-		#   @http_headers
-
 		response = EventMachine::DelegatedHttpResponse.new(self)
 
 		if @http_request_method == 'POST'
