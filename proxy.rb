@@ -46,55 +46,6 @@ require 'memoized'
 module Torb
 	Version = '0.1'
 
-	module Models
-		class Config
-			class Piece
-				include DataMapper::Resource
-
-				belongs_to :config
-
-				property :path, String, key: true
-				property :value, Object
-			end
-
-			include DataMapper::Resource
-
-			property :id, Serial
-			property :created_at, DateTime
-
-			has n, :pieces
-		end
-
-		class Session
-			include DataMapper::Resource
-
-			property :id, String, length: 64, key: true
-			property :jar, Object, default: Mechanize::CookieJar.new
-
-			has n, :requests, constraint: :destroy
-
-			property :created_at, DateTime
-		end
-	end
-
-	module Config
-		class << Config
-			def to_hash
-				Hash[Models::Config.first_or_create.pieces.to_a.map {|piece|
-					[piece.path, piece.value]
-				}]
-			end
-
-			def get (*path)
-				Models::Config.first_or_create.pieces.get(path.join(?.)).value rescue config[path.first.to_s]
-			end; alias [] get
-
-			def set (*path, value)
-				Models::Config.first_or_create.pieces.first_or_create(path: path.join(?.)).update(value: value)
-			end; alias []= set
-		end
-	end
-
 	def self.config (path=nil)
 		return @config unless path
 
@@ -105,7 +56,7 @@ module Torb
 
 	singleton_memoize
 	def self.proxy
-		whole, host, port = Torb::Config[:proxy].match(/^(.*?):(.*?)$/).to_a
+		whole, host, port = Torb.config['proxy'].match(/^(.*?):(.*?)$/).to_a
 
 		{ host: host, port: port.to_i, type: :socks5 }
 	end
@@ -114,41 +65,6 @@ module Torb
 	def self.request_options
 		{ proxy: Torb.proxy, connect_timeout: 0, inactivity_timeout: 0 }
 	end
-end
-
-if !$options[:database]
-	$options[:database] = ARGV.shift or fail 'no database URI was passed'
-end
-
-DataMapper::Model.raise_on_save_failure = true
-DataMapper::setup :default, $options[:database]
-DataMapper::finalize
-DataMapper::auto_upgrade!
-
-if $options[:config]
-	if ARGV.empty?
-		Torb::Config.to_hash.each {|name, value|
-			puts "#{name}: #{value}"
-		}
-
-		exit!
-	end
-
-	ARGV.each {|path|
-		path, value = if path.include?(?=)
-			path, value = path.split(?=, 2)
-
-			Torb::Config[path] = value
-
-			[path, value]
-		else
-			[path, Torb::Config[path]]
-		end
-
-		puts "#{path}: #{value.inspect}"
-	}
-
-	exit!
 end
 
 Torb.config($options[:config])
@@ -176,7 +92,7 @@ class Handler < EventMachine::Connection
 		}
 
 		_, service, port, ssl = headers['Host'].match(/^(\w+)(?:\.(\d+))?(\.ssl)?\./).to_a
-		uri = "http#{ssl ? ?s : nil}://#{name}.onion#{":#{port}" if port}#{@http_request_uri}"
+		uri = "http#{ssl ? ?s : nil}://#{service}.onion#{":#{port}" if port}#{@http_request_uri}"
 
 		puts "#{method} #{uri}" unless $options[:quiet]
 
@@ -200,8 +116,8 @@ class Handler < EventMachine::Connection
 				if response.headers['Content-Type'] =~ %r(text/(html|css))
 					http.callback {
 						response.content = http.response.tap {|s|
-							s.gsub!(%r(http://(\w*)\.onion), "http#{?s if secure}://\\1.#{Torb::Config['domain']}")
-							s.gsub!(%r(https://(\w*)\.onion), "http#{?s if secure}://\\1.ssl.#{Torb::Config['domain']}")
+							s.gsub!(%r(http://(\w*)\.onion), "http#{?s if secure}://\\1.#{Torb.config['domain']}")
+							s.gsub!(%r(https://(\w*)\.onion), "http#{?s if secure}://\\1.ssl.#{Torb.config['domain']}")
 						}
 
 						response.send_response
@@ -225,7 +141,7 @@ end
 EventMachine.run {
   EventMachine.epoll
 
-	whole, host, port = Torb::Config[:bind].match(/^(.*?):(.*?)$/).to_a
+	whole, host, port = Torb.config['bind'].match(/^(.*?):(.*?)$/).to_a
 
   EventMachine.start_server(host, port.to_i, Handler)
 

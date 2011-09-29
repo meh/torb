@@ -10,7 +10,7 @@ proxy: 127.0.0.1:9050
 database: sqlite:///tmp/db
 
 pages:
-  home: <
+  home: >
     %html
       %head
         %title
@@ -19,7 +19,7 @@ pages:
       %body
         BLABLABLALA
 
-  session.create: <
+  session.create: >
     %html
       %head
         %title= "torb - session registration"
