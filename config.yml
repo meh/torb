@@ -1,7 +1,32 @@
 # torb configuration
 ---
 
+domain: localhost
+salt:   la borra? la barra!
+
 bind:  0.0.0.0:3000
 proxy: 127.0.0.1:9050
 
 database: sqlite:///tmp/db
+
+pages:
+  home: <
+    %html
+      %head
+        %title
+          torb - TOR to WWW
+
+      %body
+        BLABLABLALA
+
+  session.create: <
+    %html
+      %head
+        %title= "torb - session registration"
+
+      %body
+        %content
+
+        %form{ action: env['REQUEST_URI'], method: 'get' }
+          %input{ type: 'submit', value: 'I know what I'm doing, and I know you aren't distributing the content but just redirecting it' }
+
