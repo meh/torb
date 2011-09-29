@@ -16,17 +16,21 @@
 
 require 'optparse'
 
-options = {}
+$options = {}
 
 OptionParser.new do |o|
-	options[:config] = 'config.yml'
+	$options[:config] = 'config.yml'
 
 	o.on '-c', '--config PATH', 'set config file path' do |value|
-		options[:config] = value
+		$options[:config] = value
+	end
+
+	o.on '-q', '--quiet', 'make it STFU' do
+		$options[:quiet] = true
 	end
 end.parse!
 
-options[:config] ||= ARGV.shift
+$options[:config] ||= ARGV.shift
 
 require 'eventmachine'
 require 'evma_httpserver'
@@ -50,18 +54,23 @@ module Torb
 	def self.proxy
 		whole, host, port = Torb.config['proxy'].match(/^(.*?):(.*?)$/).to_a
 
-		{ :host => host, :port => port.to_i, :type => :socks5 }
+		{ host: host, port: port.to_i, type: :socks5 }
 	end
 
 	singleton_memoize
 	def self.url
 		"http#{'s' if Torb.config['secure']}://#{Torb.config['master']}"
 	end
+
+	singleton_memoize
+	def self.request_options
+		{ proxy: Torb.proxy, connect_timeout: 0, inactivity_timeout: 0 }
+	end
 end
 
-Torb.config(options[:config])
+Torb.config($options[:config])
 trap 'USR1' do
-	Torb.config(options[:config])
+	Torb.config($options[:config])
 end
 
 class Handler < EventMachine::Connection
@@ -78,24 +87,24 @@ class Handler < EventMachine::Connection
 			return
 		end
 
-		whole, id, rid = @http_request_uri.match(%r{^/(\w+)/(\d+)(/.*)?$}).to_a
+		whole, id, rid = @http_request_uri.match(%r(^/(\w+)/(\d+)(/.*)?$)).to_a
 
 		EventMachine::HttpRequest.new("#{Torb.url}/puppet/fetch/request/#{Torb.config['name']}/#{Torb.config['password']}/#{id}/#{rid}").get.tap {|http|
 			http.callback {
 				secure, method, headers, uri, data = begin
 					JSON.parse(http.response)
-				rescue => e
+				rescue
 					response.status = 503
 					response.send_response
 					next
 				end
 
 				ssl     = uri.start_with?('https')
-				service = uri.match(%r{/(.*?).onion})[1]
+				service = uri.match(%r(/([^/]*?)\.onion))[1]
 
-				puts "Going on #{uri}"
+				puts "#{method} #{uri}" unless $options[:quiet]
 
-				EventMachine::HttpRequest.new(uri, { :proxy => Torb.proxy }).send(method.downcase, { :head => headers }).tap {|http|
+				EventMachine::HttpRequest.new(uri, Torb.request_options).send(method.downcase, { head: headers }).tap {|http|
 					http.headers {|headers|
 						response.status  = http.response_header.status
 						response.headers = Hash[http.response_header.map {|name, value|
@@ -104,7 +113,9 @@ class Handler < EventMachine::Connection
 							}, value]
 						}]
 
-						response.headers.delete('Transfer-Encoding')
+						['Transfer-Encoding', 'Content-Length'].each {|name|
+							response.headers.delete(name)
+						}
 
 						if response.headers['Set-Cookie']
 							EventMachine::HttpRequest.new("#{Torb.url}/puppet/cookie/set/#{Torb.config['name']}/#{Torb.config['key']}/#{id}/#{Base64.urlsafe_encode64(response.headers.delete('Set-Cookie'))}").get.tap {|http|
@@ -112,20 +123,23 @@ class Handler < EventMachine::Connection
 							}
 						end
 
-						if response.headers['Content-Type'] == 'text/html'
+						if response.headers['Content-Type'] =~ %r(text/html)
 							http.callback {
-								response.content = http.response.
-									gsub(%r{http://(\w*)\.onion}, "http#{?s if secure}://\\1.#{Torb.config['master']}").
-									gsub(%r{https://(\w*)\.onion}, "http#{?s if secure}://\\1.ssl.#{Torb.config['master']}").
-									gsub(%r{href=['"](.*?)['"]}) {|match|
-										uri = match.match(%r{href=['"](.*?)['"]$})[1]
+								response.content = http.response.tap {|s|
+									s.gsub!(%r(http://(\w*)\.onion), "http#{?s if secure}://\\1.#{Torb.config['master']}")
+									s.gsub!(%r(https://(\w*)\.onion), "http#{?s if secure}://\\1.ssl.#{Torb.config['master']}")
+									s.gsub!(%r((href|src)\s*=\s*['"](.*?)['"])) {|match|
+										uri = match.match(%r((href|src)\s*=\s*['"](.*?)['"]$))[2]
 
-										if (URI.parse(uri).scheme rescue false)
+										if uri =~ %r(^https?://)
 											match
 										else
-											"href='http#{?s if secure}://#{service}.#{'ssl.' if ssl}#{Torb.config['master']}/#{uri}'"
+										  uri[0] = '' if uri.start_with?(?/)
+
+											"href='http#{?s if secure}://#{service}.#{'ssl.' if ssl}#{Torb.config['master']}/#{}'"
 										end
 									}
+								}
 
 								response.send_response
 							}

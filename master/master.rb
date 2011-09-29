@@ -16,15 +16,21 @@
 
 require 'optparse'
 
-options = {}
+$options = {}
 
 OptionParser.new do |o|
+	$options[:every] = 60
+
 	o.on '-c', '--config', 'enable config mode' do
-		options[:config] = true
+		$options[:config] = true
 	end
 
 	o.on '-d', '--database DATABASE', 'set database URI' do |uri|
-		options[:database] = uri
+		$options[:database] = uri
+	end
+
+	o.on '-e', '--every NUMBER', Integer, 'check stuff every' do |time|
+		$options[:every] = time
 	end
 end.parse!
 
@@ -131,7 +137,7 @@ module Torb
 
 			belongs_to :session
 
-			property :id, Serial
+			property :id, String, key: true
 
 			property :secure,  Boolean
 			property :method,  String, length: 6
@@ -181,16 +187,16 @@ module Torb
 	end
 end
 
-if !options[:database]
-	options[:database] = ARGV.shift or fail 'no database URI was passed'
+if !$options[:database]
+	$options[:database] = ARGV.shift or fail 'no database URI was passed'
 end
 
 DataMapper::Model.raise_on_save_failure = true
-DataMapper::setup :default, options[:database]
+DataMapper::setup :default, $options[:database]
 DataMapper::finalize
 DataMapper::auto_upgrade!
 
-if options[:config]
+if $options[:config]
 	if ARGV.empty?
 		Torb::Config.to_hash.each {|name, value|
 			puts "#{name}: #{value}"
@@ -254,24 +260,24 @@ helpers do
 		halt 500 if banned?(uri)
 
 		session[:id] ||= Digest::SHA256.hexdigest(Torb::Config[:salt].to_s + rand.to_s)
-		request_id     = nil
+		request_id     = rand.to_s[2 .. -1]
 
 		Torb::Models::Session.first_or_create(id: session[:id]).tap {|s|
-			s.requests.create.tap {|r|
+			s.requests.create(id: request_id).tap {|r|
 				r.update(
 					secure:  env['rack.url_scheme'] == 'https',
 					method:  env['REQUEST_METHOD'],
 					uri:     uri,
 					headers: request_headers
 				)
-
-				request_id = r.id
 			}
 
 			s.save
 		}
 
-		redirect Torb.puppets.best.url_for(session[:id], request_id, File.basename(env['REQUEST_URI']), env['rack.url_scheme'] == 'https')
+		redirect Torb.puppets.best.tap {|puppet|
+			halt 500 if puppet.nil?
+		}.url_for(session[:id], request_id, File.basename(env['REQUEST_URI']), env['rack.url_scheme'] == 'https')
 	end
 end
 
@@ -326,7 +332,13 @@ end
 
 # start the time dependant things thread
 Thread.start {
-	Torb.puppets.ping
+	loop do
+		Torb.puppets.ping
 
-	sleep 60
+		Torb::Models::Request.all.each {|req|
+			req.destroy if req.created_at < (DateTime.now - check_every)
+		}
+
+		sleep $options[:every]
+	end
 }
