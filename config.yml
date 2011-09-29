@@ -1,0 +1,7 @@
+# torb configuration
+---
+
+bind:  0.0.0.0:3000
+proxy: 127.0.0.1:9050
+
+database: sqlite:///tmp/db

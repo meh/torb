@@ -5,5 +5,4 @@ gem 'eventmachine'
 gem 'eventmachine_httpserver'
 gem 'em-http-request'
 
-gem 'json'
 gem 'memoized'
