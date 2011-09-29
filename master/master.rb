@@ -32,6 +32,10 @@ OptionParser.new do |o|
 	o.on '-e', '--every NUMBER', Integer, 'check stuff every' do |time|
 		$options[:every] = time
 	end
+
+	o.on '-D', '--debug', 'make it in debug mode' do
+		$options[:debug] = true
+	end
 end.parse!
 
 require 'sinatra'
@@ -341,4 +345,4 @@ Thread.start {
 
 		sleep $options[:every]
 	end
-}
+} unless $options[:debug]

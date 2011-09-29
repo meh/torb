@@ -105,6 +105,11 @@ class Handler < EventMachine::Connection
 				puts "#{method} #{uri}" unless $options[:quiet]
 
 				EventMachine::HttpRequest.new(uri, Torb.request_options).send(method.downcase, { head: headers }).tap {|http|
+					http.errback {
+						response.status = 503
+						response.send_response
+					}
+
 					http.headers {|headers|
 						response.status  = http.response_header.status
 						response.headers = Hash[http.response_header.map {|name, value|
@@ -129,14 +134,14 @@ class Handler < EventMachine::Connection
 									s.gsub!(%r(http://(\w*)\.onion), "http#{?s if secure}://\\1.#{Torb.config['master']}")
 									s.gsub!(%r(https://(\w*)\.onion), "http#{?s if secure}://\\1.ssl.#{Torb.config['master']}")
 									s.gsub!(%r((href|src)\s*=\s*['"](.*?)['"])) {|match|
-										uri = match.match(%r((href|src)\s*=\s*['"](.*?)['"]$))[2]
+										uri = match.match(%r((href|src)\s*=\s*.(.*?).$))[2]
 
-										if uri =~ %r(^https?://)
+										if uri =~ %r(^\w+://) or uri.start_with?(?#)
 											match
 										else
 										  uri[0] = '' if uri.start_with?(?/)
 
-											"href='http#{?s if secure}://#{service}.#{'ssl.' if ssl}#{Torb.config['master']}/#{}'"
+											"href='http#{?s if secure}://#{service}.#{'ssl.' if ssl}#{Torb.config['master']}/#{uri}'"
 										end
 									}
 								}
@@ -144,14 +149,14 @@ class Handler < EventMachine::Connection
 								response.send_response
 							}
 						else
-							http.callback {
-								response.send_trailer
-								response.close_connection_after_writing
-							}
-
 							http.stream {|chunk|
 								response.chunk chunk
 								response.send_chunks
+							}
+
+							http.callback {
+								response.send_trailer
+								response.close_connection_after_writing
 							}
 						end
 					}
