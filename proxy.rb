@@ -86,7 +86,7 @@ module Torb
 			end
 
 			def get (*path)
-				Models::Config.first_or_create.pieces.get(path.join(?.)).value rescue nil
+				Models::Config.first_or_create.pieces.get(path.join(?.)).value rescue config[path.first.to_s]
 			end; alias [] get
 
 			def set (*path, value)
@@ -105,7 +105,7 @@ module Torb
 
 	singleton_memoize
 	def self.proxy
-		whole, host, port = Torb.config['proxy'].match(/^(.*?):(.*?)$/).to_a
+		whole, host, port = Torb::Config[:proxy].match(/^(.*?):(.*?)$/).to_a
 
 		{ host: host, port: port.to_i, type: :socks5 }
 	end
@@ -200,8 +200,8 @@ class Handler < EventMachine::Connection
 				if response.headers['Content-Type'] =~ %r(text/(html|css))
 					http.callback {
 						response.content = http.response.tap {|s|
-							s.gsub!(%r(http://(\w*)\.onion), "http#{?s if secure}://\\1.#{Torb.config['master']}")
-							s.gsub!(%r(https://(\w*)\.onion), "http#{?s if secure}://\\1.ssl.#{Torb.config['master']}")
+							s.gsub!(%r(http://(\w*)\.onion), "http#{?s if secure}://\\1.#{Torb::Config['domain']}")
+							s.gsub!(%r(https://(\w*)\.onion), "http#{?s if secure}://\\1.ssl.#{Torb::Config['domain']}")
 						}
 
 						response.send_response
@@ -225,7 +225,7 @@ end
 EventMachine.run {
   EventMachine.epoll
 
-	whole, host, port = Torb.config['bind'].match(/^(.*?):(.*?)$/).to_a
+	whole, host, port = Torb::Config[:bind].match(/^(.*?):(.*?)$/).to_a
 
   EventMachine.start_server(host, port.to_i, Handler)
 
